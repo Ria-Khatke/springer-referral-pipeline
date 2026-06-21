@@ -1,4 +1,4 @@
-# Springer Capital — Referral Data Pipeline
+# Springer Capital: Referral Data Pipeline
 
 A data engineering pipeline that profiles, cleans, processes, and 
 fraud-checks referral programme data. Outputs a 46-row validated 
@@ -24,13 +24,13 @@ referral report.
 
 ## How to Run with Docker
 
-### Step 1 — Build the image
+### Step 1: Build the image
 
 ```bash
 docker build -t springer-pipeline .
 ```
 
-### Step 2 — Run the container
+### Step 2: Run the container
 
 **Mac / Linux:**
 ```bash
@@ -42,7 +42,7 @@ docker run --rm -v "$(pwd)/Output:/app/Output" springer-pipeline
 docker run --rm -v "${PWD}/Output:/app/Output" springer-pipeline
 ```
 
-### Step 3 — Get your output
+### Step 3: Get your output
 
 After the container finishes, check the Output/ folder:
 - `referral_report.csv`  — 46-row fraud detection report
@@ -50,19 +50,19 @@ After the container finishes, check the Output/ folder:
 
 ## How to Run Locally (without Docker)
 
-### Step 1 — Install dependencies
+### Step 1: Install dependencies
 
 ```bash
 pip install -r requirements.txt
 ```
 
-### Step 2 — Run profiling
+### Step 2: Run profiling
 
 ```bash
 python profiling.py
 ```
 
-### Step 3 — Run pipeline
+### Step 3: Run pipeline
 
 ```bash
 python pipeline.py
