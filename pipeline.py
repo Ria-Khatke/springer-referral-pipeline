@@ -3,16 +3,13 @@ import pandas as pd
 import os
 import pytz
 
-# ── directory paths ───────────────────────────────────────────
 DATA_DIR   = "Data"
 OUTPUT_DIR = "Output"
-
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
-# ============================================================
-# SECTION 1 — LOAD
+
 # Read all 7 source CSV files into DataFrames
-# ============================================================
+
 
 lead_log               = pd.read_csv(f"{DATA_DIR}/lead_log.csv")
 paid_transactions      = pd.read_csv(f"{DATA_DIR}/paid_transactions.csv")
@@ -22,7 +19,7 @@ user_referral_logs     = pd.read_csv(f"{DATA_DIR}/user_referral_logs.csv")
 user_referral_statuses = pd.read_csv(f"{DATA_DIR}/user_referral_statuses.csv")
 user_referrals         = pd.read_csv(f"{DATA_DIR}/user_referrals.csv")
 
-print("SECTION 1 — LOAD COMPLETE")
+print("LOAD COMPLETE")
 print(f"  user_referrals:         {len(user_referrals)} rows")
 print(f"  user_referral_logs:     {len(user_referral_logs)} rows")
 print(f"  user_logs:              {len(user_logs)} rows")
@@ -31,12 +28,8 @@ print(f"  referral_rewards:       {len(referral_rewards)} rows")
 print(f"  user_referral_statuses: {len(user_referral_statuses)} rows")
 print(f"  lead_log:               {len(lead_log)} rows")
 
-# ============================================================
-# SECTION 2 — CLEAN
-# ============================================================
+# Cleaning data 
 
-# ── 2a. Parse all timestamp columns from ISO string to datetime ──
-# All timestamps are in UTC format e.g. "2024-05-01T05:07:30.374Z"
 
 user_referrals["referral_at"]  = pd.to_datetime(user_referrals["referral_at"],  utc=True)
 user_referrals["updated_at"]   = pd.to_datetime(user_referrals["updated_at"],   utc=True)
@@ -50,7 +43,6 @@ lead_log["created_at"] = pd.to_datetime(lead_log["created_at"], utc=True)
 # membership_expired_date is a date only (no time), different format
 user_logs["membership_expired_date"] = pd.to_datetime(user_logs["membership_expired_date"], utc=False)
 
-# ── 2b. Parse reward_value from "10 days" → integer 10 ──────────
 # Extract just the number from the string
 referral_rewards["reward_value"] = (
     referral_rewards["reward_value"]
@@ -58,10 +50,8 @@ referral_rewards["reward_value"] = (
     .astype(int)
 )
 
-# ── 2c. Title-case string columns (skip club name columns) ───────
+
 # Club name columns to leave as-is
-# Columns that should NOT be title-cased
-# Includes club names (business requirement) and all ID columns (would break joins)
 CLUB_COLS = {
     "homeclub", "transaction_location", "preferred_location", "referrer_homeclub",
     "referral_id", "referrer_id", "referee_id", "user_referral_id",
@@ -87,28 +77,23 @@ user_logs       = apply_titlecase(user_logs)
 paid_transactions = apply_titlecase(paid_transactions)
 lead_log        = apply_titlecase(lead_log)
 
-# ── 2d. Deduplicate before joining ───────────────────────────────
-
-# user_logs: keep most recent row per user_id (highest id = most recent)
+# Deduplicate before joining 
 user_logs = (user_logs
              .sort_values("id", ascending=False)
              .drop_duplicates(subset="user_id")
              .reset_index(drop=True))
 
-# lead_log: keep most recent row per lead_id
 lead_log = (lead_log
             .sort_values("id", ascending=False)
             .drop_duplicates(subset="lead_id")
             .reset_index(drop=True))
 
-# user_referral_logs: keep most recent log per referral
-# This gives us the reward_granted_at and referral_details_id
 user_referral_logs = (user_referral_logs
                       .sort_values("created_at", ascending=False)
                       .drop_duplicates(subset="user_referral_id")
                       .reset_index(drop=True))
 
-print("SECTION 2 — CLEAN COMPLETE")
+print(" CLEAN COMPLETE")
 print(f"  user_logs after dedup:          {len(user_logs)} rows")
 print(f"  lead_log after dedup:           {len(lead_log)} rows")
 print(f"  user_referral_logs after dedup: {len(user_referral_logs)} rows")
@@ -117,12 +102,7 @@ print(f"  {referral_rewards[['id','reward_value']].to_string()}")
 print("user_referrals referral_id sample:")
 print(user_referrals["referral_id"].head(5).tolist())
 
-# ============================================================
-# SECTION 3 — TIMEZONE CONVERSION
-# All timestamps are UTC, convert to local time per row
-# using the timezone column available in each table.
-# Tables without a timezone column need a join first.
-# ============================================================
+#coverting timezonses
 
 def convert_utc_to_local(ts, tz_str):
     """Convert a single UTC timestamp to local time using tz_str."""
@@ -133,8 +113,6 @@ def convert_utc_to_local(ts, tz_str):
         return ts.astimezone(local_tz).replace(tzinfo=None)
     except Exception:
         return ts.replace(tzinfo=None)
-
-# ── 3a. paid_transactions — has timezone_transaction column ─────
 paid_transactions["transaction_at"] = [
     convert_utc_to_local(ts, tz)
     for ts, tz in zip(
@@ -142,8 +120,6 @@ paid_transactions["transaction_at"] = [
         paid_transactions["timezone_transaction"]
     )
 ]
-
-# ── 3b. lead_log — has timezone_location column ─────────────────
 lead_log["created_at"] = [
     convert_utc_to_local(ts, tz)
     for ts, tz in zip(
@@ -151,10 +127,6 @@ lead_log["created_at"] = [
         lead_log["timezone_location"]
     )
 ]
-
-# ── 3c. user_referrals — no timezone column ──────────────────────
-# Join to user_logs on referrer_id to get timezone_homeclub
-# Then convert referral_at and updated_at
 
 referral_tz = user_referrals[["referral_id", "referrer_id"]].merge(
     user_logs[["user_id", "timezone_homeclub"]],
@@ -181,10 +153,6 @@ user_referrals["updated_at"] = [
     )
 ]
 
-# ── 3d. user_referral_logs — no timezone column ──────────────────
-# Join to user_referrals to get referrer_id, then to user_logs
-# to get timezone_homeclub
-
 log_tz = user_referral_logs[["id", "user_referral_id"]].merge(
     user_referrals[["referral_id", "timezone_homeclub"]],
     left_on="user_referral_id",
@@ -202,21 +170,13 @@ user_referral_logs["created_at"] = [
     )
 ]
 
-print("SECTION 3 — TIMEZONE CONVERSION COMPLETE")
+print("TIMEZONE CONVERSION COMPLETE")
 print(f"  Sample referral_at (local): {user_referrals['referral_at'].iloc[0]}")
 print(f"  Sample transaction_at (local): {paid_transactions['transaction_at'].iloc[0]}")
 
 
-# ============================================================
-# SECTION 4 — JOIN ALL TABLES
-# Build one master DataFrame from all 7 tables.
-# Start with user_referrals (46 rows) and left join everything.
-# Left join means we keep all 46 referrals even if some
-# tables have no matching row.
-# ============================================================
+# Joining all tables
 
-# ── 4a. Join referral status description ─────────────────────────
-# Adds "Berhasil", "Menunggu", "Tidak Berhasil" as a readable column
 master = user_referrals.merge(
     user_referral_statuses[["id", "description"]].rename(columns={
         "id":          "user_referral_status_id",
@@ -225,9 +185,6 @@ master = user_referrals.merge(
     on="user_referral_status_id",
     how="left"
 )
-
-# ── 4b. Join reward details ───────────────────────────────────────
-# Adds reward_value (num days) for referrals that have a reward
 master = master.merge(
     referral_rewards[["id", "reward_value"]].rename(columns={
         "id": "referral_reward_id"
@@ -236,11 +193,8 @@ master = master.merge(
     how="left"
 )
 
-# fill nulls — referrals with no reward get 0 days
 master["reward_value"] = master["reward_value"].fillna(0).astype(int)
 
-# ── 4c. Join paid transaction details ────────────────────────────
-# Adds transaction status, type, location, timestamp
 master = master.merge(
     paid_transactions[[
         "transaction_id", "transaction_status",
@@ -250,8 +204,6 @@ master = master.merge(
     how="left"
 )
 
-# ── 4d. Join referrer info from user_logs ────────────────────────
-# Adds referrer name, phone, homeclub, membership, is_deleted
 master = master.merge(
     user_logs[[
         "user_id", "name", "phone_number",
@@ -266,8 +218,6 @@ master = master.merge(
     how="left"
 )
 
-# ── 4e. Join user_referral_logs ───────────────────────────────────
-# Adds referral_details_id and reward_granted_at
 master = master.merge(
     user_referral_logs[[
         "id", "user_referral_id", "created_at", "is_reward_granted"
@@ -279,9 +229,6 @@ master = master.merge(
     on="referral_id",
     how="left"
 )
-
-# ── 4f. Join lead_log ─────────────────────────────────────────────
-# Adds source_category for referrals where source is "Lead"
 master = master.merge(
     lead_log[["lead_id", "source_category"]],
     left_on="referee_id",
@@ -289,18 +236,12 @@ master = master.merge(
     how="left"
 )
 
-print("SECTION 4 — JOIN COMPLETE")
+print("JOIN COMPLETE")
 print(f"  Master rows: {len(master)}")
 print(f"  Master cols: {len(master.columns)}")
 print(f"  Columns: {list(master.columns)}")
 
-# ============================================================
-# SECTION 5 — SOURCE CATEGORY
-# Derive referral_source_category using the business logic:
-#   "User Sign Up"      → "Online"
-#   "Draft Transaction" → "Offline"
-#   "Lead"              → take source_category from lead_log
-# ============================================================
+#sourcing category
 
 def get_source_category(row):
     src = row["referral_source"]
@@ -314,26 +255,12 @@ def get_source_category(row):
 
 master["referral_source_category"] = master.apply(get_source_category, axis=1)
 
-print("SECTION 5 — SOURCE CATEGORY COMPLETE")
+print("SOURCE CATEGORY COMPLETE")
 print(master[["referral_source", "referral_source_category"]].value_counts().to_string())
 
-# ============================================================
-# SECTION 6 — FRAUD DETECTION
+#FRAUD DETECTION
 # Add is_business_logic_valid column (True/False)
-#
-# INVALID conditions (any one = False):
-#   1. reward > 0 AND status != Berhasil
-#   2. reward > 0 AND no transaction_id
-#   3. no reward AND has transaction AND status PAID AND tx after referral
-#   4. status = Berhasil AND reward is 0 or null
-#   5. transaction occurred BEFORE referral was created
-#
-# VALID conditions (must meet one = True):
-#   1. reward > 0, status = Berhasil, has transaction, PAID,
-#      NEW, tx after referral, same month, membership active,
-#      not deleted, reward granted
-#   2. status = Menunggu or Tidak Berhasil AND no reward
-# ============================================================
+
 
 def check_business_logic(row):
 
@@ -357,7 +284,7 @@ def check_business_logic(row):
                     tx_at.year == ref_at.year and tx_at.month == ref_at.month)
     mem_active   = pd.notna(mem_exp) and pd.Timestamp(mem_exp) > pd.Timestamp(ref_at)
 
-    # ── check INVALID conditions first ───────────────────────────
+
     # Invalid 1: reward given but referral not successful
     if has_reward and status != "Berhasil":
         return False
@@ -378,7 +305,6 @@ def check_business_logic(row):
     if has_tx and pd.notna(tx_at) and pd.notna(ref_at) and tx_at <= ref_at:
         return False
 
-    # ── check VALID conditions ────────────────────────────────────
     # Valid 1: full successful referral
     if (has_reward
             and status == "Berhasil"
@@ -395,24 +321,17 @@ def check_business_logic(row):
     # Valid 2: pending or failed with no reward (legitimate state)
     if status in ("Menunggu", "Tidak Berhasil") and not has_reward:
         return True
-
-    # anything else is invalid
     return False
 
 master["is_business_logic_valid"] = master.apply(check_business_logic, axis=1)
 
-print("SECTION 6 — FRAUD DETECTION COMPLETE")
+print(" FRAUD DETECTION COMPLETE")
 print(f"  Valid   (True) : {master['is_business_logic_valid'].sum()}")
 print(f"  Invalid (False): {(~master['is_business_logic_valid']).sum()}")
 print(f"  Total          : {len(master)}")
 
-# ============================================================
-# SECTION 7 — OUTPUT
-# Select exactly the 22 columns the spec requires,
-# in the correct order, and save to CSV.
-# ============================================================
+#OUTPUT
 
-# ── 7a. Format datetime columns to clean string format ───────────
 def fmt_dt(val):
     if pd.isna(val):
         return ""
@@ -423,7 +342,6 @@ master["transaction_at"]  = master["transaction_at"].apply(fmt_dt)
 master["updated_at"]      = master["updated_at"].apply(fmt_dt)
 master["reward_granted_at"] = master["reward_granted_at"].apply(fmt_dt)
 
-# ── 7b. Fill remaining nulls ─────────────────────────────────────
 # Spec says null values should not exist in the output
 master["transaction_id"]       = master["transaction_id"].fillna("")
 master["transaction_status"]   = master["transaction_status"].fillna("")
@@ -438,7 +356,6 @@ master["referrer_homeclub"]    = master["referrer_homeclub"].fillna("")
 master["reward_granted_at"]    = master["reward_granted_at"].fillna("")
 master["referral_details_id"]  = master["referral_details_id"].fillna(0).astype(int)
 master["referrer_id"] = master["referrer_id"].fillna("")
-# ── 7c. Select and rename final columns in spec order ────────────
 report = master[[
     "referral_details_id",
     "referral_id",
@@ -466,11 +383,11 @@ report = master[[
     "reward_value": "num_reward_days"
 })
 
-# ── 7d. Save to CSV ───────────────────────────────────────────────
+#  Save to CSV 
 output_path = f"{OUTPUT_DIR}/referral_report.csv"
 report.to_csv(output_path, index=False)
 
-print("SECTION 7 — OUTPUT COMPLETE")
+print("OUTPUT COMPLETE")
 print(f"  Rows    : {len(report)}")
 print(f"  Columns : {len(report.columns)}")
 print(f"  Saved to: {output_path}")
